@@ -257,7 +257,6 @@ struct EntryEditor: View {
     let isNew: Bool
     let onSave: (HostEntry) -> Void
     @Environment(\.dismiss) private var dismiss
-    @State private var touched = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -267,21 +266,23 @@ struct EntryEditor: View {
 
             Form {
                 Section {
-                    TextField("Address", text: $entry.address, prompt: Text("127.0.0.1 or ::1"))
-                        .font(.system(.body, design: .monospaced))
-                    validation(entry.addressError)
+                    // Text(verbatim:) keeps SwiftUI from parsing the prompt as Markdown,
+                    // which turned "www.example.test" into a link.
+                    TextField(text: $entry.address, prompt: Text(verbatim: "Required")) { Text("Address") }
+                    validation(entry.addressError, value: entry.address,
+                               hint: "IPv4 or IPv6, e.g. 127.0.0.1 or ::1")
 
-                    TextField("Hosts", text: $entry.hosts, prompt: Text("example.test www.example.test"))
-                    validation(entry.hostsError, hint: "Separate multiple hosts with spaces")
+                    TextField(text: $entry.hosts, prompt: Text(verbatim: "Required")) { Text("Hosts") }
+                    validation(entry.hostsError, value: entry.hosts,
+                               hint: "Separate multiple hosts with spaces, e.g. myapp.test api.myapp.test")
 
-                    TextField("Comment", text: $entry.comment, prompt: Text("Optional"))
-                    validation(entry.commentError)
+                    TextField(text: $entry.comment, prompt: Text(verbatim: "Optional")) { Text("Comment") }
+                    validation(entry.commentError, value: entry.comment)
 
                     Toggle("Active", isOn: $entry.active)
                 }
             }
             .formStyle(.grouped)
-            .onChange(of: entry.fields) { touched = true }
 
             HStack {
                 Spacer()
@@ -300,8 +301,9 @@ struct EntryEditor: View {
     }
 
     @ViewBuilder
-    private func validation(_ error: String?, hint: String? = nil) -> some View {
-        if let error, touched || !isNew {
+    private func validation(_ error: String?, value: String, hint: String? = nil) -> some View {
+        // Empty fields only show the hint; the Add button stays disabled until they're valid.
+        if let error, !value.trimmingCharacters(in: .whitespaces).isEmpty {
             Text(error).font(.caption).foregroundStyle(.red)
         } else if let hint {
             Text(hint).font(.caption).foregroundStyle(.secondary)
