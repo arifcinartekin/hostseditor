@@ -106,11 +106,10 @@ struct HostEntry: Identifiable, Equatable {
         return isForwarded ? (aliasIP ?? a) : a
     }
 
-    /// "127.0.0.1:8080", or "127.0.0.1 (80:8080, 443:8443)" for several ports.
+    /// "127.0.0.1:8080", or "127.0.0.1:9090, 9443" for several ports.
     var displayAddress: String {
         guard isForwarded else { return address }
-        if forwards.count == 1, forwards[0].listen == 80 { return "\(address):\(forwards[0].target)" }
-        return "\(address) (\(forwards.map(\.text).joined(separator: ", ")))"
+        return address + ":" + forwards.map { String($0.target) }.joined(separator: ", ")
     }
 
     var hostList: [String] {
@@ -118,6 +117,18 @@ struct HostEntry: Identifiable, Equatable {
     }
 
     var family: IPFamily? { ipFamily(address.trimmingCharacters(in: .whitespaces)) }
+
+    /// Host names with their host port when it isn't 80: "adomain.btld:1",
+    /// or "a.test  :80, :443" for several ports.
+    var displayHosts: String {
+        let names = hostList.joined(separator: "  ")
+        guard isForwarded else { return names }
+        if forwards.count == 1 {
+            let l = forwards[0].listen
+            return l == 80 ? names : hostList.map { "\($0):\(l)" }.joined(separator: "  ")
+        }
+        return names + "  " + forwards.map { ":\($0.listen)" }.joined(separator: ", ")
+    }
 
     var addressError: String? {
         let a = address.trimmingCharacters(in: .whitespaces)

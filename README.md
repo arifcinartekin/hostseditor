@@ -22,7 +22,7 @@ You need macOS 14 (Sonoma) or newer.
 - Right-click an entry to duplicate it, ping it, move it up or down, copy its line or delete it. Select several entries to enable, disable or ping them all at once
 - Search and filter by All / Active / Inactive / Duplicates
 - Entries that share a host name with another entry get a warning icon
-- **Port forwarding:** send `http://myapp.test` to `127.0.0.1:8080` (see below)
+- **Port forwarding:** serve `127.0.0.1:8080` at `http://myapp.test`, or at any other port such as `myapp.test:3000` (see below)
 - Edit the comment block at the top of the file ("Additional Lines")
 - Lines you don't touch, including comments, blank lines and spacing, are written back exactly as they were
 - The app notices when another program changes the file and offers to reload it
@@ -30,12 +30,16 @@ You need macOS 14 (Sonoma) or newer.
 
 ## Port forwarding
 
-`/etc/hosts` maps names to IP addresses only, so it can't point a name at a port. Hosts Editor adds this on top: type a port in **Forward to port** when you add or edit an entry.
+`/etc/hosts` maps names to IP addresses only, so it can't point a name at a port. Hosts Editor adds this on top. When you add or edit an entry, fill in:
 
-| Forward to port | Result |
-| --- | --- |
-| `8080` | `http://domain.mydomain` → `127.0.0.1:8080` |
-| `9090, 443:9443` | port 80 → `127.0.0.1:9090` and port 443 → `127.0.0.1:9443` |
+| Field | Meaning | Example |
+| --- | --- | --- |
+| **Address** | where the service runs | `127.0.0.1` |
+| **Port** | the port the service listens on | `9999` |
+| **Hosts** | the domain to serve it on | `adomain.btld` |
+| **Host port** | the port used with the domain (default 80) | `1` |
+
+That example serves `127.0.0.1:9999` at `adomain.btld:1`. Leave **Host port** empty to get `http://adomain.btld`. Use **Add Another Port** to forward several ports for the same domain (for example 80 → 9090 and 443 → 9443). Leave **Port** empty for a plain hosts entry.
 
 How it works:
 
@@ -49,6 +53,7 @@ Notes:
 - Switching an entry off also turns its forwarding off.
 - If an entry's forwarding icon turns orange and the status bar says "Port forwarding not active", it's saved but its loopback address isn't set up. Press **Save**, or restart your Mac, to set it up again.
 - For HTTPS on 443, the service on the target port has to handle TLS itself.
+- Browsers refuse some ports (1, 21, 22, 25, 6000 and others, shown as `ERR_UNSAFE_PORT`). The editor warns you when you pick one. curl and other clients can still use them.
 - Its config is in `/Library/Application Support/HostsEditor/`. Removing the last forwarded entry deletes the folder and the LaunchDaemon.
 
 ## How saving works

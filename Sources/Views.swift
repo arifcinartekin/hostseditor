@@ -88,7 +88,7 @@ struct ContentView: View {
             .width(min: 130, ideal: 190)
 
             TableColumn("Hosts") { e in
-                Text(e.hostList.joined(separator: "  "))
+                Text(e.displayHosts)
                     .foregroundStyle(e.active ? .primary : .secondary)
                     .lineLimit(1)
                     .help(e.hostList.joined(separator: "\n"))
@@ -276,22 +276,59 @@ struct ContentView: View {
 // MARK: - Entry editor
 
 struct EntryEditor: View {
+    /// One "host port → service port" row, kept as text while editing.
+    struct PortPair: Identifiable {
+        let id = UUID()
+        var service = ""
+        var host = ""
+    }
+
     @State var entry: HostEntry
     let isNew: Bool
     let onSave: (HostEntry) -> Void
     @Environment(\.dismiss) private var dismiss
-    @State private var portsText: String
+    @State private var pairs: [PortPair]
 
     init(entry: HostEntry, isNew: Bool, onSave: @escaping (HostEntry) -> Void) {
         _entry = State(initialValue: entry)
-        _portsText = State(initialValue: entry.isForwarded ? PortForward.format(entry.forwards) : "")
+        let p = entry.forwards.map { PortPair(service: String($0.target), host: $0.listen == 80 ? "" : String($0.listen)) }
+        _pairs = State(initialValue: p.isEmpty ? [PortPair()] : p)
         self.isNew = isNew
         self.onSave = onSave
     }
 
-    private var portsError: String? { PortForward.parseList(portsText).error }
+    private var parsed: (list: [PortForward], error: String?) {
+        var list: [PortForward] = []
+        for p in pairs {
+            let s = p.service.trimmingCharacters(in: .whitespaces)
+            let h = p.host.trimmingCharacters(in: .whitespaces)
+            if s.isEmpty && h.isEmpty { continue }
+            if s.isEmpty { return ([], "Enter the service port for host port \(h)") }
+            guard let target = Int(s), (1...65535).contains(target) else { return ([], "Invalid port: \(s)") }
+            let listen: Int
+            if h.isEmpty { listen = 80 } else {
+                guard let l = Int(h), (1...65535).contains(l) else { return ([], "Invalid host port: \(h)") }
+                listen = l
+            }
+            if list.contains(where: { $0.listen == listen }) { return ([], "Host port \(listen) is used twice") }
+            list.append(PortForward(listen: listen, target: target))
+        }
+        return (list, nil)
+    }
+
+    /// The entry as it would be saved.
+    private var candidate: HostEntry {
+        var e = entry
+        e.forwards = parsed.list
+        return e
+    }
+
+    private var forwarding: Bool {
+        !pairs[0].service.trimmingCharacters(in: .whitespaces).isEmpty || pairs.count > 1
+    }
 
     var body: some View {
+        let c = candidate
         VStack(alignment: .leading, spacing: 0) {
             Text(isNew ? "New Entry" : "Edit Entry")
                 .font(.headline)
@@ -299,31 +336,52 @@ struct EntryEditor: View {
 
             Form {
                 Section {
-                    // Text(verbatim:) keeps SwiftUI from parsing the prompt as Markdown,
-                    // which turned "www.example.test" into a link.
                     TextField(text: $entry.address, prompt: Text(verbatim: "Required")) { Text("Address") }
-                    validation(entry.addressError, value: entry.address,
-                               hint: "IPv4 or IPv6, e.g. 127.0.0.1 or ::1")
+                    validation(c.addressError, value: entry.address,
+                               hint: "Where the service runs, e.g. 127.0.0.1 or ::1")
+
+                    TextField(text: $pairs[0].service, prompt: Text(verbatim: "Optional")) { Text("Port") }
+                    if !forwarding {
+                        Text("The port the service listens on, e.g. 8080. Leave empty for a plain hosts entry.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
 
                     TextField(text: $entry.hosts, prompt: Text(verbatim: "Required")) { Text("Hosts") }
-                    validation(entry.hostsError, value: entry.hosts,
+                    validation(c.hostsError, value: entry.hosts,
                                hint: "Separate multiple hosts with spaces, e.g. myapp.test api.myapp.test")
 
+                    if forwarding {
+                        TextField(text: $pairs[0].host, prompt: Text(verbatim: "80")) { Text("Host port") }
+                        ForEach($pairs) { $p in
+                            if p.id != pairs.first?.id {
+                                LabeledContent("Also forward") {
+                                    HStack(spacing: 6) {
+                                        TextField("Host port", text: $p.host, prompt: Text(verbatim: "host port"))
+                                            .labelsHidden().frame(width: 80)
+                                        Image(systemName: "arrow.right").foregroundStyle(.secondary)
+                                        TextField("Port", text: $p.service, prompt: Text(verbatim: "port"))
+                                            .labelsHidden().frame(width: 80)
+                                        Button {
+                                            pairs.removeAll { $0.id == p.id }
+                                        } label: {
+                                            Image(systemName: "minus.circle.fill").foregroundStyle(.secondary)
+                                        }
+                                        .buttonStyle(.plain)
+                                        .help("Remove")
+                                    }
+                                    .multilineTextAlignment(.trailing)
+                                }
+                            }
+                        }
+                        portSummary(c)
+                        Button("Add Another Port") { pairs.append(PortPair()) }
+                            .buttonStyle(.link)
+                    }
+
                     TextField(text: $entry.comment, prompt: Text(verbatim: "Optional")) { Text("Comment") }
-                    validation(entry.commentError, value: entry.comment)
+                    validation(c.commentError, value: entry.comment)
 
                     Toggle("Active", isOn: $entry.active)
-                }
-
-                Section {
-                    TextField(text: $portsText, prompt: Text(verbatim: "Optional")) { Text("Forward to port") }
-                        .onChange(of: portsText) {
-                            let r = PortForward.parseList(portsText)
-                            if r.error == nil { entry.forwards = r.list }
-                        }
-                    validation(portsError, value: portsText, hint: portsHint)
-                } header: {
-                    Text("Port Forwarding")
                 }
             }
             .formStyle(.grouped)
@@ -333,27 +391,38 @@ struct EntryEditor: View {
                 Button("Cancel", role: .cancel) { dismiss() }
                     .keyboardShortcut(.cancelAction)
                 Button(isNew ? "Add" : "Save") {
-                    onSave(entry)
+                    onSave(candidate)
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
-                .disabled(!entry.isValid || portsError != nil)
+                .disabled(!c.isValid || parsed.error != nil)
             }
             .padding([.horizontal, .bottom], 20)
         }
-        .frame(width: 460)
+        .frame(width: 480)
     }
 
-    private var portsHint: String {
-        let host = entry.hostList.first ?? "myapp.test"
-        let a = entry.address.trimmingCharacters(in: .whitespaces).isEmpty ? "127.0.0.1" : entry.address
-        if let f = entry.forwards.first, entry.forwards.count == 1, f.listen == 80, portsError == nil {
-            return "http://\(host) will open \(a):\(f.target). Use 443:8443 to forward other ports; separate several with commas."
+    /// "http://myapp.test → 127.0.0.1:8080" lines, the port error, and browser warnings.
+    @ViewBuilder
+    private func portSummary(_ c: HostEntry) -> some View {
+        if let err = parsed.error {
+            Text(err).font(.caption).foregroundStyle(.red)
+        } else {
+            let host = c.hostList.first ?? "myapp.test"
+            let addr = c.address.trimmingCharacters(in: .whitespaces).isEmpty ? "127.0.0.1" : c.address
+            VStack(alignment: .leading, spacing: 3) {
+                ForEach(c.forwards, id: \.listen) { f in
+                    Text(verbatim: (f.listen == 80 ? "http://\(host)" : "\(host):\(f.listen)") + "  →  \(addr):\(f.target)")
+                }
+                let blocked = c.forwards.map(\.listen).filter(browserBlockedPorts.contains)
+                if !blocked.isEmpty {
+                    Text("Browsers refuse port \(blocked.map(String.init).joined(separator: ", ")) (ERR_UNSAFE_PORT). curl and other clients work; pick another host port for browser use.")
+                        .foregroundStyle(.orange)
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
         }
-        if !entry.forwards.isEmpty, portsError == nil {
-            return entry.forwards.map { "\(host):\($0.listen) → \(a):\($0.target)" }.joined(separator: ",  ")
-        }
-        return "e.g. 8080 sends http://\(host) to \(a):8080. Use 443:8443 for other ports; separate several with commas."
     }
 
     @ViewBuilder
@@ -366,6 +435,14 @@ struct EntryEditor: View {
         }
     }
 }
+
+/// Ports Chrome, Safari and Firefox refuse to connect to.
+let browserBlockedPorts: Set<Int> = [
+    1, 7, 9, 11, 13, 15, 17, 19, 20, 21, 22, 23, 25, 37, 42, 43, 53, 69, 77, 79, 87, 95, 101, 102, 103,
+    104, 109, 110, 111, 113, 115, 117, 119, 123, 135, 137, 139, 143, 161, 179, 389, 427, 465, 512, 513,
+    514, 515, 526, 530, 531, 532, 540, 548, 554, 556, 563, 587, 601, 636, 989, 990, 993, 995, 1719, 1720,
+    1723, 2049, 3659, 4045, 5060, 5061, 6000, 6566, 6665, 6666, 6667, 6668, 6669, 6697, 10080,
+]
 
 // MARK: - Additional lines editor
 
