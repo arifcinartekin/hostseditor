@@ -303,8 +303,12 @@ struct EntryEditor: View {
             let s = p.service.trimmingCharacters(in: .whitespaces)
             let h = p.host.trimmingCharacters(in: .whitespaces)
             if s.isEmpty && h.isEmpty { continue }
-            if s.isEmpty { return ([], "Enter the service port for host port \(h)") }
-            guard let target = Int(s), (1...65535).contains(target) else { return ([], "Invalid port: \(s)") }
+            // Either side may be left empty; it then means port 80.
+            let target: Int
+            if s.isEmpty { target = 80 } else {
+                guard let t = Int(s), (1...65535).contains(t) else { return ([], "Invalid port: \(s)") }
+                target = t
+            }
             let listen: Int
             if h.isEmpty { listen = 80 } else {
                 guard let l = Int(h), (1...65535).contains(l) else { return ([], "Invalid host port: \(h)") }
@@ -324,7 +328,9 @@ struct EntryEditor: View {
     }
 
     private var forwarding: Bool {
-        !pairs[0].service.trimmingCharacters(in: .whitespaces).isEmpty || pairs.count > 1
+        pairs.count > 1 || pairs.contains {
+            !$0.service.trimmingCharacters(in: .whitespaces).isEmpty || !$0.host.trimmingCharacters(in: .whitespaces).isEmpty
+        }
     }
 
     var body: some View {
@@ -340,18 +346,19 @@ struct EntryEditor: View {
                     validation(c.addressError, value: entry.address,
                                hint: "Where the service runs, e.g. 127.0.0.1 or ::1")
 
-                    TextField(text: $pairs[0].service, prompt: Text(verbatim: "Optional")) { Text("Port") }
-                    if !forwarding {
-                        Text("The port the service listens on, e.g. 8080. Leave empty for a plain hosts entry.")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
+                    TextField(text: $pairs[0].service, prompt: Text(verbatim: forwarding ? "80" : "Optional")) { Text("Port") }
 
                     TextField(text: $entry.hosts, prompt: Text(verbatim: "Required")) { Text("Hosts") }
                     validation(c.hostsError, value: entry.hosts,
                                hint: "Separate multiple hosts with spaces, e.g. myapp.test api.myapp.test")
 
+                    TextField(text: $pairs[0].host, prompt: Text(verbatim: forwarding ? "80" : "Optional")) { Text("Host port") }
+                    if !forwarding {
+                        Text("Port is where the service listens, Host port is what you use with the domain. Either one defaults to 80. Leave both empty for a plain hosts entry.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+
                     if forwarding {
-                        TextField(text: $pairs[0].host, prompt: Text(verbatim: "80")) { Text("Host port") }
                         ForEach($pairs) { $p in
                             if p.id != pairs.first?.id {
                                 LabeledContent("Also forward") {
@@ -385,6 +392,8 @@ struct EntryEditor: View {
                 }
             }
             .formStyle(.grouped)
+            .scrollDisabled(true)
+            .fixedSize(horizontal: false, vertical: true) // grow the sheet as port rows are added
 
             HStack {
                 Spacer()

@@ -135,7 +135,7 @@ struct HostEntry: Identifiable, Equatable {
         if a.isEmpty { return "Address is required" }
         if family == nil { return "Not a valid IPv4 or IPv6 address" }
         if isForwarded, !(family == .v4 && a.hasPrefix("127.")) {
-            return "Port forwarding only works to a 127.x.x.x address"
+            return "Ports can only be forwarded to this Mac (127.x.x.x). Clear Port and Host port to point the host at this address."
         }
         return nil
     }
