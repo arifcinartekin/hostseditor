@@ -41,7 +41,7 @@ struct ContentView: View {
             statusBar(dups: dups)
         }
         .navigationTitle("Hosts File Editor")
-        .navigationSubtitle(store.isDirty ? "Edited" : "/etc/hosts")
+        .navigationSubtitle(store.hasEdits ? "Edited" : "/etc/hosts")
         .searchable(text: $search, placement: .toolbar, prompt: "Filter addresses, hosts, comments")
         .toolbar { toolbar }
         .sheet(item: $editing) { e in
@@ -76,11 +76,16 @@ struct ContentView: View {
             .width(44)
 
             TableColumn("Address") { e in
-                Text(e.address)
-                    .font(.system(.body, design: .monospaced))
-                    .foregroundStyle(e.active ? .primary : .secondary)
+                HStack(spacing: 5) {
+                    Text(e.displayAddress)
+                        .font(.system(.body, design: .monospaced))
+                        .foregroundStyle(e.active ? .primary : .secondary)
+                        .lineLimit(1)
+                        .help(e.displayAddress)
+                    if e.isForwarded { forwardBadge(e) }
+                }
             }
-            .width(min: 110, ideal: 150)
+            .width(min: 130, ideal: 190)
 
             TableColumn("Hosts") { e in
                 Text(e.hostList.joined(separator: "  "))
@@ -113,6 +118,23 @@ struct ContentView: View {
             if let id = ids.first, let e = store.entry(id) { editing = e }
         }
         .onDeleteCommand { store.delete(selection); selection = [] }
+    }
+
+    @ViewBuilder
+    private func forwardBadge(_ e: HostEntry) -> some View {
+        let alias = e.aliasIP ?? "a new 127.0.0.x address"
+        let routes = e.forwards.map { "\(alias):\($0.listen) → \(e.address):\($0.target)" }.joined(separator: "\n")
+        let saved = store.savedForwards.contains(alias + " ")
+        let live = e.aliasIP.map { store.liveAliases.contains($0) } ?? false
+        if !e.active || !saved || live {
+            Image(systemName: "arrow.triangle.turn.up.right.circle")
+                .foregroundStyle(.secondary)
+                .help("Port forwarding\n" + routes + (saved ? "" : "\n(applied when you save)"))
+        } else {
+            Image(systemName: "arrow.triangle.turn.up.right.circle.fill")
+                .foregroundStyle(.orange)
+                .help("Port forwarding is saved but not active: \(alias) is not set up on lo0.\n" + routes)
+        }
     }
 
     @ViewBuilder
@@ -234,7 +256,8 @@ struct ContentView: View {
             }
             Spacer()
             if store.isDirty {
-                Text("Unsaved changes").foregroundStyle(.secondary)
+                Text(store.hasEdits ? "Unsaved changes" : "Port forwarding not active")
+                    .foregroundStyle(store.hasEdits ? Color.secondary : Color.orange)
                 Button("Revert") { store.load(); selection = [] }
                 Button("Save") { store.save() }
                     .buttonStyle(.borderedProminent)
@@ -257,6 +280,16 @@ struct EntryEditor: View {
     let isNew: Bool
     let onSave: (HostEntry) -> Void
     @Environment(\.dismiss) private var dismiss
+    @State private var portsText: String
+
+    init(entry: HostEntry, isNew: Bool, onSave: @escaping (HostEntry) -> Void) {
+        _entry = State(initialValue: entry)
+        _portsText = State(initialValue: entry.isForwarded ? PortForward.format(entry.forwards) : "")
+        self.isNew = isNew
+        self.onSave = onSave
+    }
+
+    private var portsError: String? { PortForward.parseList(portsText).error }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -281,6 +314,17 @@ struct EntryEditor: View {
 
                     Toggle("Active", isOn: $entry.active)
                 }
+
+                Section {
+                    TextField(text: $portsText, prompt: Text(verbatim: "Optional")) { Text("Forward to port") }
+                        .onChange(of: portsText) {
+                            let r = PortForward.parseList(portsText)
+                            if r.error == nil { entry.forwards = r.list }
+                        }
+                    validation(portsError, value: portsText, hint: portsHint)
+                } header: {
+                    Text("Port Forwarding")
+                }
             }
             .formStyle(.grouped)
 
@@ -293,11 +337,23 @@ struct EntryEditor: View {
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
-                .disabled(!entry.isValid)
+                .disabled(!entry.isValid || portsError != nil)
             }
             .padding([.horizontal, .bottom], 20)
         }
         .frame(width: 460)
+    }
+
+    private var portsHint: String {
+        let host = entry.hostList.first ?? "myapp.test"
+        let a = entry.address.trimmingCharacters(in: .whitespaces).isEmpty ? "127.0.0.1" : entry.address
+        if let f = entry.forwards.first, entry.forwards.count == 1, f.listen == 80, portsError == nil {
+            return "http://\(host) will open \(a):\(f.target). Use 443:8443 to forward other ports; separate several with commas."
+        }
+        if !entry.forwards.isEmpty, portsError == nil {
+            return entry.forwards.map { "\(host):\($0.listen) → \(a):\($0.target)" }.joined(separator: ",  ")
+        }
+        return "e.g. 8080 sends http://\(host) to \(a):8080. Use 443:8443 for other ports; separate several with commas."
     }
 
     @ViewBuilder

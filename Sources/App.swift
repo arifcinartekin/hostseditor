@@ -23,7 +23,7 @@ struct HostsEditorApp: App {
                     .keyboardShortcut("s")
                     .disabled(!store.isDirty)
                 Button("Revert to Saved") { store.load() }
-                    .disabled(!store.isDirty)
+                    .disabled(!store.hasEdits)
                 Button("Reload from Disk") { store.load() }
                     .keyboardShortcut("r")
             }
@@ -37,7 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @MainActor
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         let store = HostsStore.shared
-        guard store.isDirty else { return .terminateNow }
+        guard store.hasEdits else { return .terminateNow }
         let alert = NSAlert()
         alert.messageText = "Save changes to the hosts file?"
         alert.informativeText = "Your changes will be lost if you don't save them."
