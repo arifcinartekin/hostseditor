@@ -39,7 +39,7 @@ You need macOS 14 (Sonoma) or newer.
 | **Hosts** | the domain to serve it on | `adomain.btld` |
 | **Host port** | the port used with the domain (default 80) | `1` |
 
-That example serves `127.0.0.1:9999` at `adomain.btld:1`. An empty **Port** or **Host port** means 80, so `Host port 3000` alone serves `127.0.0.1:80` at `adomain.btld:3000`, and `Port 9999` alone serves it at `http://adomain.btld`. Leave both empty for a plain hosts entry. Use **Add Another Port** to forward several ports for the same domain (for example 80 → 9090 and 443 → 9443).
+That example serves `127.0.0.1:9999` at `adomain.btld:1`. An empty **Port** or **Host port** means 80, so `Host port 3000` alone serves `127.0.0.1:80` at `adomain.btld:3000`, and `Port 9999` alone serves `127.0.0.1:9999` at `http://adomain.btld`. Leave both empty for a plain hosts entry. Use **Add Another Port** to forward several ports for the same domain (for example 80 → 9090 and 443 → 9443).
 
 How it works:
 
